@@ -1,25 +1,26 @@
 package com.mparticle.internal.database.services.mp;
 
 import android.location.Location;
-import android.os.Message;
-import android.util.Log;
 
 import com.mparticle.internal.Constants;
-import com.mparticle.internal.MPMessage;
 import com.mparticle.internal.Session;
+import com.mparticle.internal.networking.BaseMPMessage;
+import com.mparticle.mock.utils.RandomUtils;
 
 import org.json.JSONException;
-import org.junit.Before;
 import org.junit.Test;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
 
 import static junit.framework.Assert.assertEquals;
+import static junit.framework.Assert.assertNotNull;
 
 public class MessageServiceTest extends BaseMPServiceTest {
-    Long mpid1, mpid2;
+    Long mpid1, mpid2, mpid3;
 
 
     @Override
@@ -27,6 +28,7 @@ public class MessageServiceTest extends BaseMPServiceTest {
         super.before();
         mpid1 = new Random().nextLong();
         mpid2 = new Random().nextLong();
+        mpid3 = new Random().nextLong();
     }
 
     @Test
@@ -80,6 +82,33 @@ public class MessageServiceTest extends BaseMPServiceTest {
         assertEquals(MessageService.getSessionHistory(database, previousSession, true, mpid2).size(), 35);
         assertEquals(MessageService.getSessionHistory(database, previousSession, false, mpid1).size(), 35);
         assertEquals(MessageService.getSessionHistory(database, previousSession, false, Constants.TEMPORARY_MPID).size(), 55);
+    }
+
+    @Test
+    public void testSessionHistoryAccuracy() throws Exception {
+        String currentSession = UUID.randomUUID().toString();
+        String previousSession = UUID.randomUUID().toString();
+        BaseMPMessage testMessage;
+        Long[] mpids = new Long[]{mpid1, mpid2, mpid3};
+        Long testMpid;
+        Map<String, BaseMPMessage> testMessages = new HashMap<String, BaseMPMessage>();
+        for (int i = 0; i < 100; i++) {
+            testMpid = mpids[RandomUtils.getInstance().randomInt(0, 3)];
+            testMessage = getMpMessage(currentSession, testMpid);
+            testMessages.put(testMessage.toString(), testMessage);
+            MessageService.insertMessage(database, "apiKey",testMessage , testMpid);
+        }
+        assertEquals(MessageService.markMessagesAsUploaded(database, Integer.MAX_VALUE), 100);
+        List<MessageService.ReadyMessage> readyMessages = MessageService.getSessionHistory(database, previousSession, false, Constants.TEMPORARY_MPID);
+        assertEquals(readyMessages.size(), testMessages.size());
+        for (MessageService.ReadyMessage readyMessage: readyMessages) {
+            BaseMPMessage message = testMessages.get(readyMessage.getMessage());
+            assertNotNull(message);
+            assertEquals(readyMessage.getMpid(), message.getMpId());
+            assertEquals(readyMessage.getMessage(), message.toString());
+            assertEquals(readyMessage.getSessionId(), currentSession);
+        }
+
     }
 
     @Test
@@ -153,7 +182,7 @@ public class MessageServiceTest extends BaseMPServiceTest {
         for (int i = 0; i < Constants.LIMIT_MAX_MESSAGE_SIZE; i++) {
             builder.append("ab");
         }
-        MPMessage message = new MPMessage.Builder(builder.toString(), new Session(), new Location("New York City"), 1).build();
+        BaseMPMessage message = new BaseMPMessage.Builder(builder.toString(), new Session(), new Location("New York City"), 1).build();
         MessageService.insertMessage(database, "apiKey", message, 1);
 
         assertEquals(MessageService.getMessagesForUpload(database).size(), 10);

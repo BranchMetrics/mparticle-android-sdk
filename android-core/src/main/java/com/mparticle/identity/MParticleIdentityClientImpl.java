@@ -1,6 +1,7 @@
 package com.mparticle.identity;
 
 import android.content.Context;
+import android.net.Uri;
 
 import com.mparticle.BuildConfig;
 import com.mparticle.MParticle;
@@ -8,7 +9,7 @@ import com.mparticle.internal.ConfigManager;
 import com.mparticle.internal.Constants;
 import com.mparticle.internal.Logger;
 import com.mparticle.internal.MPUtility;
-import com.mparticle.internal.MParticleBaseClientImpl;
+import com.mparticle.internal.networking.MParticleBaseClientImpl;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -58,7 +59,7 @@ import java.util.UUID;
     static final String X_MP_KEY = "x-mp-key";
     static final String X_MP_SIGNATURE = "x-mp-signature";
 
-    private static final String SECURE_SERVICE_SCHEME = "https";
+
     private static final String API_HOST = MPUtility.isEmpty(BuildConfig.MP_IDENTITY_URL) ? "identity.mparticle.com" : BuildConfig.MP_IDENTITY_URL;
     private static final String SERVICE_VERSION_1 = "/v1";
 
@@ -101,15 +102,11 @@ import java.util.UUID;
     public IdentityHttpResponse modify(IdentityApiRequest request) throws JSONException, IOException {
         JSONObject jsonObject = getChangeJson(request);
         Logger.verbose("Identity modify request: \n" + jsonObject.toString());
-        HttpURLConnection connection = getPostConnection(mConfigManager.getMpid(), MODIFY_PATH, jsonObject.toString());
+        HttpURLConnection connection = getPostConnection(request.mpid, MODIFY_PATH, jsonObject.toString());
         connection = makeUrlRequest(connection, jsonObject.toString(), false);
         int responseCode = connection.getResponseCode();
         JSONObject response = MPUtility.getJsonResponse(connection);
         return parseIdentityResponse(responseCode, response);
-    }
-
-    static void setListener(BaseNetworkListener listener) {
-        mListener = listener;
     }
 
     private JSONObject getBaseJson() throws JSONException {
@@ -173,10 +170,16 @@ import java.util.UUID;
     }
 
     private JSONObject getChangeJson(IdentityApiRequest request) throws JSONException {
+        if (request.mpid == null) {
+            request.mpid = mConfigManager.getMpid();
+        }
         JSONObject jsonObject = getBaseJson();
         JSONArray changesJson = new JSONArray();
-        Map<MParticle.IdentityType, String> oldIdentities = mConfigManager.getUserIdentities(mConfigManager.getMpid());
         Map<MParticle.IdentityType, String> newIdentities = request.getUserIdentities();
+        Map<MParticle.IdentityType, String> oldIdentities = request.getOldIdentities();
+        if (oldIdentities == null) {
+            oldIdentities = mConfigManager.getUserIdentities(request.mpid);
+        }
 
         Set<MParticle.IdentityType> identityTypes = new HashSet<MParticle.IdentityType>(oldIdentities.keySet());
         identityTypes.addAll(newIdentities.keySet());
@@ -235,8 +238,8 @@ import java.util.UUID;
             url = getUrl(mpId, endpoint);
         }
         HttpURLConnection connection = (HttpURLConnection)url.openConnection();
-        connection.setConnectTimeout(2000);
-        connection.setReadTimeout(10000);
+        connection.setConnectTimeout(mConfigManager.getIdentityConnectionTimeout());
+        connection.setReadTimeout(mConfigManager.getIdentityConnectionTimeout());
         connection.setRequestMethod("POST");
         connection.setDoOutput(true);
         connection.setRequestProperty("Content-Encoding", "gzip");
@@ -277,7 +280,12 @@ import java.util.UUID;
             stringBuilder.append("/");
         }
         stringBuilder.append(endpoint);
-        return new URL(SECURE_SERVICE_SCHEME, API_HOST, stringBuilder.toString());
+        Uri uri = new Uri.Builder()
+                .scheme(getProtocol())
+                .encodedAuthority(API_HOST)
+                .path(stringBuilder.toString())
+                .build();
+        return new URL(uri.toString());
     }
 
     private String getApiKey() {
@@ -362,5 +370,10 @@ import java.util.UUID;
             default:
                 return "";
         }
+    }
+
+    @Override
+    protected void overrideProtocol(String value) {
+        super.overrideProtocol(value);
     }
 }

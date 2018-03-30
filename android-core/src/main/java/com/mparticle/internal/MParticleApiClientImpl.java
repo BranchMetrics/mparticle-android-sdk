@@ -6,6 +6,7 @@ import android.net.Uri;
 
 import com.mparticle.BuildConfig;
 import com.mparticle.MParticle;
+import com.mparticle.internal.networking.MParticleBaseClientImpl;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -47,7 +48,6 @@ public class MParticleApiClientImpl extends MParticleBaseClientImpl implements M
      */
     private static final String HEADER_KITS = "x-mp-kits";
     private static final String HEADER_BUNDLED_KITS = "x-mp-bundled-kits";
-    private static final String SECURE_SERVICE_SCHEME = MPUtility.isEmpty(BuildConfig.MP_URL) ? "https" : "http";
 
     private static final String API_HOST = MPUtility.isEmpty(BuildConfig.MP_URL) ? "nativesdks.mparticle.com" : BuildConfig.MP_URL;
     private static final String CONFIG_HOST = MPUtility.isEmpty(BuildConfig.MP_CONFIG_URL) ? "config2.mparticle.com" : BuildConfig.MP_CONFIG_URL;
@@ -139,8 +139,8 @@ public class MParticleApiClientImpl extends MParticleBaseClientImpl implements M
         try {
             if (mConfigUrl == null){
                 Uri uri = new Uri.Builder()
-                        .scheme(SECURE_SERVICE_SCHEME)
-                        .authority(CONFIG_HOST)
+                        .scheme(getProtocol())
+                        .encodedAuthority(CONFIG_HOST)
                         .path(SERVICE_VERSION_4 + "/" + mApiKey + "/config")
                         .appendQueryParameter("av", MPUtility.getAppVersionName(mContext))
                         .appendQueryParameter("sv", Constants.MPARTICLE_VERSION)
@@ -148,8 +148,8 @@ public class MParticleApiClientImpl extends MParticleBaseClientImpl implements M
                 mConfigUrl = new URL(uri.toString());
             }
             HttpURLConnection connection = (HttpURLConnection) mConfigUrl.openConnection();
-            connection.setConnectTimeout(2000);
-            connection.setReadTimeout(10000);
+            connection.setConnectTimeout(mConfigManager.getConnectionTimeout());
+            connection.setReadTimeout(mConfigManager.getConnectionTimeout());
             connection.setRequestProperty(HEADER_ENVIRONMENT, Integer.toString(mConfigManager.getEnvironment().getValue()));
 
             String supportedKits = getSupportedKitString();
@@ -213,7 +213,12 @@ public class MParticleApiClientImpl extends MParticleBaseClientImpl implements M
     }
 
     private URL getAudienceUrl() throws MalformedURLException {
-        return new URL(SECURE_SERVICE_SCHEME, API_HOST, SERVICE_VERSION_1 + "/" + mApiKey + "/audience?mpID=" + mConfigManager.getMpid());
+        Uri uri = new Uri.Builder()
+                .scheme(getProtocol())
+                .encodedAuthority(API_HOST)
+                .path(SERVICE_VERSION_1 + "/" + mApiKey + "/audience?mpID=" + mConfigManager.getMpid())
+                .build();
+        return new URL(uri.toString());
     }
 
     public JSONObject fetchAudiences()  {
@@ -222,8 +227,8 @@ public class MParticleApiClientImpl extends MParticleBaseClientImpl implements M
         try {
             Logger.debug("Starting Segment Network request");
             HttpURLConnection connection = (HttpURLConnection) getAudienceUrl().openConnection();
-            connection.setConnectTimeout(2000);
-            connection.setReadTimeout(10000);
+            connection.setConnectTimeout(mConfigManager.getConnectionTimeout());
+            connection.setReadTimeout(mConfigManager.getConnectionTimeout());
             connection.setRequestProperty("User-Agent", mUserAgent);
 
             addMessageSignature(connection, null);
@@ -254,11 +259,16 @@ public class MParticleApiClientImpl extends MParticleBaseClientImpl implements M
         checkThrottleTime();
         checkRampValue();
         if (mEventUrl == null){
-            mEventUrl = new URL(SECURE_SERVICE_SCHEME, API_HOST, SERVICE_VERSION_1 + "/" + mApiKey + "/events");
+            Uri uri = new Uri.Builder()
+                    .scheme(getProtocol())
+                    .encodedAuthority(API_HOST)
+                    .path(SERVICE_VERSION_1 + "/" + mApiKey + "/events")
+                    .build();
+            mEventUrl = new URL(uri.toString());
         }
         HttpURLConnection connection = (HttpURLConnection) mEventUrl.openConnection();
-        connection.setConnectTimeout(2000);
-        connection.setReadTimeout(10000);
+        connection.setConnectTimeout(mConfigManager.getConnectionTimeout());
+        connection.setReadTimeout(mConfigManager.getConnectionTimeout());
         connection.setDoOutput(true);
         connection.setRequestMethod("POST");
         connection.setRequestProperty("Content-Type", "application/json");
@@ -289,6 +299,9 @@ public class MParticleApiClientImpl extends MParticleBaseClientImpl implements M
 
         if (responseCode >= 200 && responseCode < 300) {
             JSONObject response = MPUtility.getJsonResponse(connection);
+            if (response == null) {
+                response = new JSONObject();
+            }
 
             Logger.verbose("Upload result response: \n" +
                     connection.getResponseCode() + ": " +
@@ -473,5 +486,10 @@ public class MParticleApiClientImpl extends MParticleBaseClientImpl implements M
         }else{
             return mCurrentCookies;
         }
+    }
+
+    @Override
+    protected void overrideProtocol(String value) {
+        super.overrideProtocol(value);
     }
 }

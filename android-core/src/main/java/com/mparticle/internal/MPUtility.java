@@ -20,6 +20,7 @@ import android.provider.Settings;
 import android.view.Display;
 import android.view.WindowManager;
 
+import com.google.android.instantapps.InstantApps;
 import com.mparticle.MParticle;
 
 import org.json.JSONArray;
@@ -39,6 +40,7 @@ import java.net.HttpURLConnection;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
 import java.util.Iterator;
@@ -152,14 +154,14 @@ public class MPUtility {
         }
     }
 
-    public static long getAvailableInternalDisk() {
+    public static long getAvailableInternalDisk(Context context) {
         File path = Environment.getDataDirectory();
-        return getDiskSpace(path);
+        return getDiskSpace(context, path);
     }
 
-    public static long getAvailableExternalDisk() {
+    public static long getAvailableExternalDisk(Context context) {
         File path = Environment.getExternalStorageDirectory();
-        return getDiskSpace(path);
+        return getDiskSpace(context, path);
     }
 
     public static String getAppVersionName(Context context) {
@@ -217,7 +219,10 @@ public class MPUtility {
         return null;
     }
 
-    public static long getDiskSpace(File path){
+    public static long getDiskSpace(Context context, File path){
+        if (MPUtility.isInstantApp(context)) {
+            return 0L;
+        }
         long availableSpace = -1L;
         StatFs stat = new StatFs(path.getPath());
         if (Build.VERSION.SDK_INT > Build.VERSION_CODES.JELLY_BEAN_MR1) {
@@ -229,6 +234,26 @@ public class MPUtility {
         return availableSpace;
     }
 
+    public static String getErrorMessage(HttpURLConnection connection) {
+        InputStream is = connection.getErrorStream();
+        if (is == null) {
+            return null;
+        }
+        StringBuilder responseBuilder = new StringBuilder();
+        BufferedReader in = new BufferedReader(new InputStreamReader(is));
+        String line;
+        try {
+            while ((line = in.readLine()) != null) {
+                responseBuilder.append(line + '\n');
+            }
+            in.close();
+            return responseBuilder.toString();
+        }
+        catch (Exception e) {
+            return e.getMessage();
+        }
+    }
+
     public static long millitime(){
         return TimeUnit.MILLISECONDS.convert(System.nanoTime(), TimeUnit.NANOSECONDS);
     }
@@ -238,7 +263,11 @@ public class MPUtility {
     }
 
     public static String getTimeZone() {
-        return TimeZone.getDefault().getDisplayName(false, 0);
+        try {
+            //Some Android 8 devices crash here for no clear reason
+            return TimeZone.getDefault().getDisplayName(false, 0);
+        } catch (Exception ignored){ }
+            return null;
     }
 
     public static int getOrientation(Context context) {
@@ -539,6 +568,22 @@ public class MPUtility {
         }
     }
 
+    public static JSONObject mapToJson(Map<String, String> map) {
+        if (map == null) {
+            return null;
+        }
+        JSONObject attrs = new JSONObject();
+        for (Map.Entry<String, String> entry : map.entrySet()) {
+            try {
+                attrs.put(entry.getKey(), entry.getValue());
+            }
+            catch (JSONException ignore) {
+
+            }
+        }
+        return attrs;
+    }
+
     public static boolean isAppDebuggable(Context context){
         return ( 0 != ( context.getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE ) );
     }
@@ -636,5 +681,49 @@ public class MPUtility {
                 return id;
             }
         }
+    }
+
+    public static boolean isInstantApp(final Context context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            return context.getPackageManager().isInstantApp();
+        }
+        try {
+            Class.forName("com.google.android.instantapps.InstantApps");
+            return new SyncRunnable<Boolean>() {
+                @Override
+                public Boolean run() {
+                    return InstantApps.isInstantApp(context);
+                }
+            }.run();
+        }
+        catch (ClassNotFoundException ignored) {
+            try {
+                Class.forName("com.google.android.instantapps.supervisor.InstantAppsRuntime");
+                return true;
+            }
+            catch (ClassNotFoundException a) {
+                return false;
+            }
+        }
+    }
+
+    public static boolean containsNullKey(Map map) {
+        try {
+            return map.containsKey(null);
+        } catch (RuntimeException ignore) {
+            //At this point we should be able to conclude that the implementation of the map does
+            //not allow for null keys, if you get an exception when you check for a null key, but
+            //there is no guarantee in the Map documentation, so we still have to check by hand
+            for (Map.Entry entry : new ArrayList<Map.Entry>(map.entrySet())) {
+                if (entry.getKey() == null) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private interface SyncRunnable<T> {
+        T run();
     }
 }

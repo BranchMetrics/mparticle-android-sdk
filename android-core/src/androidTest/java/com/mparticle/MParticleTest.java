@@ -1,17 +1,14 @@
 package com.mparticle;
 
-import android.os.Looper;
 import android.support.test.InstrumentationRegistry;
 
 import com.mparticle.internal.KitFrameworkWrapper;
 import com.mparticle.internal.MessageManager;
+import com.mparticle.mock.utils.RandomUtils;
 import com.mparticle.utils.MParticleUtils;
-import com.mparticle.utils.RandomUtils;
 
 import junit.framework.Assert;
 
-import org.junit.Before;
-import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.util.Arrays;
@@ -19,7 +16,6 @@ import java.util.Arrays;
 import static junit.framework.Assert.assertFalse;
 import static junit.framework.Assert.assertNotNull;
 import static junit.framework.Assert.assertTrue;
-
 
 public class MParticleTest extends BaseCleanStartedEachTest {
 
@@ -152,12 +148,8 @@ public class MParticleTest extends BaseCleanStartedEachTest {
 
     private void ensureSessionActive() {
         if (!MParticle.getInstance().isSessionActive()) {
-            MParticle.getInstance().logEvent("Thing started", MParticle.EventType.Other);
+            MParticle.getInstance().logEvent(MParticleUtils.getInstance().getRandomMPEventSimple());
             assertTrue(MParticle.getInstance().isSessionActive());
         }
-    }
-
-    public static MessageManager getMessageManager() {
-        return MParticle.getInstance().mMessageManager;
     }
 }

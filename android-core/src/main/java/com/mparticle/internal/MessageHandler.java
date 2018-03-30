@@ -9,9 +9,11 @@ import com.mparticle.MParticle;
 import com.mparticle.internal.Constants.MessageKey;
 import com.mparticle.internal.Constants.MessageType;
 import com.mparticle.internal.database.services.MParticleDBManager;
+import com.mparticle.internal.database.tables.mp.SessionTable;
 import com.mparticle.internal.dto.AttributionChange;
 import com.mparticle.internal.dto.UserAttributeRemoval;
 import com.mparticle.internal.dto.UserAttributeResponse;
+import com.mparticle.internal.networking.BaseMPMessage;
 
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -41,6 +43,7 @@ import java.util.UUID;
     public static final int SET_USER_ATTRIBUTE = 11;
     public static final int INCREMENT_USER_ATTRIBUTE = 12;
     public static final int INSTALL_REFERRER_UPDATED = 13;
+    public static final int CLEAR_MESSAGES_FOR_UPLOAD = 14;
 
     private final MessageManagerCallbacks mMessageManagerCallbacks;
 
@@ -68,7 +71,7 @@ import java.util.UUID;
             case STORE_MESSAGE:
                 try {
 
-                    MPMessage message = (MPMessage) msg.obj;
+                    BaseMPMessage message = (BaseMPMessage) msg.obj;
                     message.put(MessageKey.STATE_INFO_KEY, MessageManager.getStateInfo());
                     String messageType = message.getString(MessageKey.TYPE);
                     // handle the special case of session-start by creating the
@@ -122,16 +125,18 @@ import java.util.UUID;
             case CREATE_SESSION_END_MESSAGE:
                 try {
                     Map.Entry<String, Set<Long>> entry = (Map.Entry<String, Set<Long>>) msg.obj;
-                    MPMessage endMessage = null;
+                    BaseMPMessage endMessage = null;
+                    String sessionId = entry.getKey();
                    try {
-                       endMessage = mMParticleDBManager.getSessionForSessionEndMessage(entry.getKey(), ((MessageManager)mMessageManagerCallbacks).getLocation(), entry.getValue());
+                       endMessage = mMParticleDBManager.getSessionForSessionEndMessage(sessionId, ((MessageManager)mMessageManagerCallbacks).getLocation(), entry.getValue());
                    }catch (JSONException jse){
                        Logger.warning("Failed to create mParticle session end message");
                    }
                    if (endMessage != null) {
-                            // insert the record into messages with duration
                        try {
+                           Logger.verbose("Creating session end message for session ID: " + sessionId);
                            mMParticleDBManager.insertMessage(mMessageManagerCallbacks.getApiKey(), endMessage);
+                           mMParticleDBManager.updateSessionStatus(sessionId, SessionTable.SessionStatus.CLOSED);
                        } catch (MParticleApiClientImpl.MPNoConfigException e) {
                            Logger.error("Unable to process uploads, API key and/or API Secret are missing");
                            return;
@@ -152,6 +157,7 @@ import java.util.UUID;
                 break;
             case END_ORPHAN_SESSIONS:
                 try {
+                    Logger.verbose("Ending orphaned sessions.");
                     // find left-over sessions that exist during startup and end them
                     Long mpid = (Long)msg.obj;
                     List<String> sessionIds = mMParticleDBManager.getOrphanSessionIds(mMessageManagerCallbacks.getApiKey());
@@ -167,7 +173,7 @@ import java.util.UUID;
                 break;
             case STORE_BREADCRUMB:
                 try {
-                    MPMessage message = (MPMessage) msg.obj;
+                    BaseMPMessage message = (BaseMPMessage) msg.obj;
                     message.put(Constants.MessageKey.ID, UUID.randomUUID().toString());
                     try {
                         mMParticleDBManager.insertBreadcrumb(message, mMessageManagerCallbacks.getApiKey());
@@ -207,6 +213,9 @@ import java.util.UUID;
                 } catch (Exception e) {
                     Logger.error(e, "Error while incrementing user attribute: ", e.toString());
                 }
+                break;
+            case CLEAR_MESSAGES_FOR_UPLOAD:
+                mMessageManagerCallbacks.messagesClearedForUpload();
         }
     }
 
@@ -250,7 +259,7 @@ import java.util.UUID;
         MParticle.getInstance().getKitManager().setUserAttribute(key, newValue);
     }
 
-    private void dbInsertSession(MPMessage message) throws JSONException {
+    private void dbInsertSession(BaseMPMessage message) throws JSONException {
         try {
             DeviceAttributes deviceAttributes =  mMessageManagerCallbacks.getDeviceAttributes();
             mMParticleDBManager.insertSession(message, mMessageManagerCallbacks.getApiKey(), deviceAttributes.getAppInfo(mContext), deviceAttributes.getDeviceInfo(mContext));

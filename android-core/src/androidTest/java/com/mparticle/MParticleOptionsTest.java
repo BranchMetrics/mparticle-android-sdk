@@ -5,23 +5,17 @@ import android.content.SharedPreferences;
 import android.os.Looper;
 import android.support.test.InstrumentationRegistry;
 import android.support.test.rule.GrantPermissionRule;
-import android.webkit.WebView;
 
 import com.mparticle.internal.AccessUtils;
+import com.mparticle.internal.ConfigManager;
 import com.mparticle.internal.Constants;
 import com.mparticle.internal.Logger;
 import com.mparticle.internal.MPUtility;
 import com.mparticle.utils.AndroidUtils;
-import com.mparticle.utils.TestingUtils;
 
-import org.junit.Before;
-import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
 import java.util.UUID;
 
 import static junit.framework.Assert.assertEquals;
@@ -31,19 +25,19 @@ import static junit.framework.Assert.assertNull;
 import static junit.framework.Assert.assertTrue;
 import static junit.framework.Assert.fail;
 
-public class MParticleOptionsTest {
+public class MParticleOptionsTest extends BaseTest {
     Context mContext;
     Context mProductionContext;
 
-    @BeforeClass
-    public static void preConditions() {
+    @Override
+    public void beforeClass() {
         if (Looper.myLooper() == null) {
             Looper.prepare();
         }
     }
 
-    @Before
-    public void setup() {
+    @Override
+    public void before() {
         mContext = InstrumentationRegistry.getContext();
         mProductionContext = AndroidUtils.getInstance().getProductionContext(mContext);
         MParticle.setInstance(null);
@@ -321,6 +315,16 @@ public class MParticleOptionsTest {
                 .build();
         MParticle.start(options);
         assertEquals(MParticle.getInstance().getConfigManager().getSessionTimeout(), 123000);
+        MParticle.setInstance(null);
+
+        //make sure it resets if the session timeout is not specified
+        options = MParticleOptions.builder(mProductionContext)
+                .credentials("key", "secret")
+                .build();
+        MParticle.start(options);
+        assertEquals(MParticle.getInstance().getConfigManager().getSessionTimeout(), 60000);
+        MParticle.setInstance(null);
+
     }
 
     @Test
@@ -456,6 +460,60 @@ public class MParticleOptionsTest {
                 .build();
         MParticle.start(options);
         assertFalse(MParticle.getInstance().isLocationTrackingEnabled());
+    }
+
+    @Test
+    public void testTimeout() {
+        MParticleOptions options = MParticleOptions.builder(mProductionContext)
+                .credentials("key", "secret")
+                .build();
+        MParticle.start(options);
+        assertEquals(MParticle.getInstance().getConfigManager().getIdentityConnectionTimeout(), ConfigManager.DEFAULT_CONNECTION_TIMEOUT_SECONDS * 1000);
+        assertEquals(MParticle.getInstance().getConfigManager().getConnectionTimeout(), ConfigManager.DEFAULT_CONNECTION_TIMEOUT_SECONDS * 1000);
+        MParticle.setInstance(null);
+
+        options = MParticleOptions.builder(mProductionContext)
+                .credentials("key", "secret")
+                .identityConnectionTimeout(-123)
+                .build();
+        MParticle.start(options);
+        assertEquals(MParticle.getInstance().getConfigManager().getIdentityConnectionTimeout(), ConfigManager.DEFAULT_CONNECTION_TIMEOUT_SECONDS * 1000);
+        assertEquals(MParticle.getInstance().getConfigManager().getConnectionTimeout(), ConfigManager.DEFAULT_CONNECTION_TIMEOUT_SECONDS * 1000);
+        MParticle.setInstance(null);
+
+        options = MParticleOptions.builder(mProductionContext)
+                .credentials("key", "secret")
+                .identityConnectionTimeout(0)
+                .build();
+        MParticle.start(options);
+        assertEquals(MParticle.getInstance().getConfigManager().getIdentityConnectionTimeout(), ConfigManager.DEFAULT_CONNECTION_TIMEOUT_SECONDS * 1000);
+        assertEquals(MParticle.getInstance().getConfigManager().getConnectionTimeout(), ConfigManager.DEFAULT_CONNECTION_TIMEOUT_SECONDS * 1000);
+        MParticle.setInstance(null);
+
+        options = MParticleOptions.builder(mProductionContext)
+                .credentials("key", "secret")
+                .identityConnectionTimeout(1)
+                .build();
+        MParticle.start(options);
+        assertEquals(MParticle.getInstance().getConfigManager().getIdentityConnectionTimeout(), 1000);
+        assertEquals(MParticle.getInstance().getConfigManager().getConnectionTimeout(), ConfigManager.DEFAULT_CONNECTION_TIMEOUT_SECONDS * 1000);
+        MParticle.setInstance(null);
+
+        options = MParticleOptions.builder(mProductionContext)
+                .credentials("key", "secret")
+                .identityConnectionTimeout(123)
+                .build();
+        MParticle.start(options);
+        assertEquals(MParticle.getInstance().getConfigManager().getIdentityConnectionTimeout(), 123000);
+        assertEquals(MParticle.getInstance().getConfigManager().getConnectionTimeout(), ConfigManager.DEFAULT_CONNECTION_TIMEOUT_SECONDS * 1000);
+        MParticle.setInstance(null);
+
+        options = MParticleOptions.builder(mProductionContext)
+                .credentials("key", "secret")
+                .build();
+        MParticle.start(options);
+        assertEquals(MParticle.getInstance().getConfigManager().getIdentityConnectionTimeout(), ConfigManager.DEFAULT_CONNECTION_TIMEOUT_SECONDS * 1000);
+        assertEquals(MParticle.getInstance().getConfigManager().getConnectionTimeout(), ConfigManager.DEFAULT_CONNECTION_TIMEOUT_SECONDS * 1000);
     }
 
 }

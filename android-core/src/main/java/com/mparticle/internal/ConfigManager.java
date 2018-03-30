@@ -7,6 +7,7 @@ import android.os.Build;
 import com.mparticle.ExceptionHandler;
 import com.mparticle.MParticle;
 import com.mparticle.identity.IdentityApi;
+import com.mparticle.internal.networking.BaseMPMessage;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -68,6 +69,10 @@ public class ConfigManager {
     private ExceptionHandler mExHandler;
     private boolean mIncludeSessionHistory = false;
     private JSONObject mCurrentCookies;
+    public static final int DEFAULT_CONNECTION_TIMEOUT_SECONDS = 30;
+    public static final int MINIMUM_CONNECTION_TIMEOUT_SECONDS = 1;
+    public static final int DEFAULT_SESSION_TIMEOUT_SECONDS = 60;
+    public static final int DEFAULT_UPLOAD_INTERVAL = 600;
 
     private ConfigManager() {
 
@@ -554,6 +559,10 @@ public class ConfigManager {
         }
     }
 
+    public boolean mpidExists(long mpid) {
+        return UserStorage.getMpIdSet(mContext).contains(mpid);
+    }
+
     private static boolean sInProgress;
     public static void setIdentityRequestInProgress(boolean inProgress) {
         sInProgress = inProgress;
@@ -577,7 +586,7 @@ public class ConfigManager {
         return mTriggerMessageHashes;
     }
 
-    public boolean shouldTrigger(MPMessage message) {
+    public boolean shouldTrigger(BaseMPMessage message) {
         JSONArray messageMatches = getTriggerMessageMatches();
         JSONArray triggerHashes = getTriggerMessageHashes();
 
@@ -901,6 +910,20 @@ public class ConfigManager {
             currentAdId = adInfo.id;
         }
         sPreferences.edit().putString(Constants.PrefKeys.PREVIOUS_ANDROID_ID, currentAdId).apply();
+    }
+
+    public int getIdentityConnectionTimeout() {
+        return sPreferences.getInt(Constants.PrefKeys.IDENTITY_CONNECTION_TIMEOUT, DEFAULT_CONNECTION_TIMEOUT_SECONDS) * 1000;
+    }
+
+    public int getConnectionTimeout() {
+        return DEFAULT_CONNECTION_TIMEOUT_SECONDS * 1000;
+    }
+
+    public void setIdentityConnectionTimeout(int connectionTimeout) {
+        if (connectionTimeout >= MINIMUM_CONNECTION_TIMEOUT_SECONDS) {
+            sPreferences.edit().putInt(Constants.PrefKeys.IDENTITY_CONNECTION_TIMEOUT, connectionTimeout).apply();
+        }
     }
 
     private static Set<IdentityApi.MpIdChangeListener> mpIdChangeListeners = new HashSet<IdentityApi.MpIdChangeListener>();

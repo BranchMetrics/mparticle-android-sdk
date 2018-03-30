@@ -4,7 +4,8 @@ import android.content.Context;
 
 import com.mparticle.*;
 import com.mparticle.internal.database.services.MParticleDBManager;
-import com.mparticle.internal.database.services.MParticleDBManagerTest;
+import com.mparticle.internal.database.services.AccessUtils;
+import com.mparticle.internal.networking.BaseMPMessage;
 import com.mparticle.utils.TestingUtils;
 
 import org.json.JSONArray;
@@ -29,6 +30,7 @@ public class AppStateManagerInstrumentedTest extends BaseCleanStartedEachTest {
     @Override
     protected void before() throws Exception {
         mAppStateManager = MParticle.getInstance().getAppStateManager();
+
         MParticle.getInstance().getConfigManager().setMpid(Constants.TEMPORARY_MPID);
     }
 
@@ -43,9 +45,9 @@ public class AppStateManagerInstrumentedTest extends BaseCleanStartedEachTest {
             mAppStateManager.getSession().addMpid(mpid);
         }
         final boolean[] checked = new boolean[1];
-        MParticleDBManagerTest.setMessageListener(new MParticleDBManager.MessageListener() {
+        AccessUtils.setMessageStoredListener(new MParticleDBManager.MessageListener() {
             @Override
-            public void onMessageStored(MPMessage message) {
+            public void onMessageStored(BaseMPMessage message) {
                 if (message.getMessageType().equals(Constants.MessageType.SESSION_END)) {
                     try {
                         JSONArray mpidsArray = message.getJSONArray(Constants.MessageKey.SESSION_SPANNING_MPIDS);
@@ -79,9 +81,9 @@ public class AppStateManagerInstrumentedTest extends BaseCleanStartedEachTest {
             mAppStateManager.getSession().addMpid(mpid);
         }
         final boolean[] checked = new boolean[1];
-        MParticleDBManagerTest.setMessageListener(new MParticleDBManager.MessageListener() {
+        AccessUtils.setMessageStoredListener(new MParticleDBManager.MessageListener() {
             @Override
-            public void onMessageStored(MPMessage message) {
+            public void onMessageStored(BaseMPMessage message) {
                 if (message.getMessageType().equals(Constants.MessageType.SESSION_END)) {
                     try {
                         JSONArray mpidsArray = message.getJSONArray(Constants.MessageKey.SESSION_SPANNING_MPIDS);

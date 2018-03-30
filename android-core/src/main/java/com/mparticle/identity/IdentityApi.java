@@ -15,15 +15,16 @@ import com.mparticle.internal.DatabaseTables;
 import com.mparticle.internal.KitManager;
 import com.mparticle.internal.Logger;
 import com.mparticle.internal.MPUtility;
-import com.mparticle.internal.MParticleApiClient;
 import com.mparticle.internal.MessageManager;
 import com.mparticle.internal.database.services.MParticleDBManager;
 
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.WeakHashMap;
 
+/**
+ * Helper class that is used to access Identity endpoints to manage User's Attributes and Identities
+ */
 public class IdentityApi {
     public static int UNKNOWN_ERROR = -1;
     public static int THROTTLE_ERROR = 429;
@@ -36,8 +37,7 @@ public class IdentityApi {
     MessageManager mMessageManager;
 
     MParticleUserDelegate mUserDelegate;
-    private static MParticleIdentityClient sApiClient;
-    private static boolean sTestAlreadySet = false;
+    private MParticleIdentityClient mApiClient;
 
     private Set<IdentityStateListener> identityStateListeners = new HashSet<IdentityStateListener>();
     private static Object lock = new Object();
@@ -51,16 +51,14 @@ public class IdentityApi {
         this.mConfigManager = configManager;
         this.mMessageManager = messageManager;
         configManager.addMpIdChangeListener(new IdentityStateListenerManager());
-        if (sTestAlreadySet) {
-            sTestAlreadySet = false;
-        } else {
-            setApiClient(new MParticleIdentityClientImpl(configManager, context), false);
-        }
+        setApiClient(new MParticleIdentityClientImpl(configManager, context));
     }
 
     /**
-     * return the current MPID, even if an Identity request, which might cause the MPID to change, is
-     * currently in progress
+     * return the MParticleUser with the current MPID, even if an Identity request,
+     * which might cause the MPID to change, is currently in progress
+     *
+     * @see IdentityStateListener
      */
     @Nullable
     public MParticleUser getCurrentUser() {
@@ -72,18 +70,64 @@ public class IdentityApi {
         }
     }
 
+    /**
+     * return the MParticleUser with the specified MPID, if it exists. If an MParticleUser with the
+     * specified MPID does not exist, or the specifid MPID is 0, this will return null
+     *
+     * @param mpid the desired MParticleUser's MPID
+     */
+    @Nullable
+    public MParticleUser getUser(Long mpid) {
+            if (mConfigManager.mpidExists(mpid)) {
+                return MParticleUser.getInstance(mContext, mpid, mUserDelegate);
+            } else {
+            return null;
+        }
+    }
+
+    /**
+     * adds a global listener for any changes in Identity State. This will give you a callback when
+     * a user is identified
+     * @param listener callback for Identity State changes
+     *
+     * @see IdentityStateListener
+     */
     public void addIdentityStateListener(IdentityStateListener listener) {
         identityStateListeners.add(listener);
     }
 
+    /**
+     * removes an instance of a global listener by reference
+     * @param listener callback for Identity State changes
+     *
+     * @see IdentityStateListener
+     */
     public void removeIdentityStateListener(IdentityStateListener listener) {
         identityStateListeners.remove(listener);
     }
 
+    /**
+     * calls the Identity Logout endpoint with an empty IdentityApiRequest
+     *
+     * @return an MParticleTask<IdentityApiResult> to handle the Asynchronous results
+     *
+     * @see MParticleTask and
+     * @see IdentityApiResult
+     */
     public MParticleTask<IdentityApiResult> logout() {
         return logout(null);
     }
 
+    /**
+     * @see IdentityApiRequest
+     *
+     * calls the Identity Logout endpoint
+     *
+     * @return an MParticleTask<IdentityApiResult> to handle the Asynchronous results
+     *
+     * @see MParticleTask and
+     * @see IdentityApiResult
+     */
     public MParticleTask<IdentityApiResult> logout(final IdentityApiRequest logoutRequest) {
         return makeIdentityRequest(logoutRequest, new IdentityNetworkRequestRunnable() {
             @Override
@@ -93,10 +137,28 @@ public class IdentityApi {
         });
     }
 
+    /**
+     * calls the Identity Login endpoint with an empty IdentityApiRequest
+     *
+     * @return an MParticleTask<IdentityApiResult> to handle the Asynchronous results
+     *
+     * @see MParticleTask and
+     * @see IdentityApiResult
+     */
     public MParticleTask<IdentityApiResult> login() {
         return login(null);
     }
 
+    /**
+     * @see IdentityApiRequest
+     *
+     * calls the Identity Login endpoint
+     *
+     * @return an MParticleTask<IdentityApiResult> to handle the Asynchronous results
+     *
+     * @see MParticleTask and
+     * @see IdentityApiResult
+     */
     public MParticleTask<IdentityApiResult> login(@Nullable final IdentityApiRequest loginRequest) {
         return makeIdentityRequest(loginRequest, new IdentityNetworkRequestRunnable() {
             @Override
@@ -106,6 +168,16 @@ public class IdentityApi {
         });
     }
 
+    /**
+     * @see IdentityApiRequest
+     *
+     * calls the Identity Identify endpoint
+     *
+     * @return an MParticleTask<IdentityApiResult> to handle the Asynchronous results
+     *
+     * @see MParticleTask and
+     * @see IdentityApiResult
+     */
     public MParticleTask<IdentityApiResult> identify(final IdentityApiRequest identifyRequest) {
         return makeIdentityRequest(identifyRequest, new IdentityNetworkRequestRunnable() {
             @Override
@@ -115,6 +187,16 @@ public class IdentityApi {
         });
     }
 
+    /**
+     * @see IdentityApiRequest
+     *
+     * calls the Identity Modify endpoint. This should be used in place of the pre-version-5
+     * MParticle.setUserAttribute() and MParticle.setUserIdentity() methods
+     *
+     * @return an MParticleTask<IdentityApiResult> to handle the Asynchronous results
+     *
+     * @see BaseIdentityTask
+     */
     public BaseIdentityTask modify(@NonNull final IdentityApiRequest updateRequest) {
         boolean devMode = MPUtility.isDevEnv() || MPUtility.isAppDebuggable(mContext);
         final BaseIdentityTask task = new BaseIdentityTask();
@@ -158,7 +240,6 @@ public class IdentityApi {
             request = IdentityApiRequest.withEmptyUser().build();
         }
         final BaseIdentityTask task = new BaseIdentityTask();
-        final long startingMpid = mConfigManager.getMpid();
         ConfigManager.setIdentityRequestInProgress(true);
         final IdentityApiRequest identityApiRequest = request;
         mBackgroundHandler.post(new Runnable() {
@@ -166,6 +247,7 @@ public class IdentityApi {
             public void run() {
                 synchronized (lock) {
                     try {
+                        long startingMpid = mConfigManager.getMpid();
                         final IdentityHttpResponse result = networkRequest.request(identityApiRequest);
 
                         if (!result.isSuccessful()) {
@@ -188,18 +270,17 @@ public class IdentityApi {
     }
 
     MParticleIdentityClient getApiClient() {
-        if (sApiClient == null) {
-            sApiClient = new MParticleIdentityClientImpl(mConfigManager, mContext);
+        if (mApiClient == null) {
+            mApiClient = new MParticleIdentityClientImpl(mConfigManager, mContext);
         }
-        return sApiClient;
+        return mApiClient;
     }
 
     /**
-     * @param overrideNextInstance - retain this client for the next instance to be constructed, testing method
+     * this should only be used for testing
      */
-    static void setApiClient(MParticleIdentityClient client, boolean overrideNextInstance) {
-        sTestAlreadySet = overrideNextInstance;
-        sApiClient = client;
+    void setApiClient(MParticleIdentityClient client) {
+        mApiClient = client;
     }
 
     interface IdentityNetworkRequestRunnable {

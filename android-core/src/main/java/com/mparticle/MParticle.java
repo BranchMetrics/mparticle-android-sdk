@@ -51,34 +51,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The primary access point to the mParticle SDK. In order to use this class, you must first call {@link #start(MParticleOptions)}, which requires
- * configuration via <code><a href="http://developer.android.com/guide/topics/resources/providing-resources.html">Android Resources</a></code>. You can then retrieve a reference
+ * The primary access point to the mParticle SDK. In order to use this class, you must first call {@link #start(MParticleOptions)}. You can then retrieve a reference
  * to an instance of this class via {@link #getInstance()}
- * <p></p>
- * It's recommended to keep configuration parameters in a single xml file located within your res/values folder. The full list of configuration options is as follows:
- * <p></p>
- * Required parameters
- * <ul>
- * <li>mp_key - <code><a href="http://developer.android.com/guide/topics/resources/string-resource.html#String">String</a></code> - This is the key used to authenticate with the mParticle SDK server API</li>
- * <li>mp_secret - <code> <a href="http://developer.android.com/guide/topics/resources/string-resource.html#String">String</a></code> - This is the secret used to authenticate with the mParticle SDK server API</li>
- * </ul>
- * Required for push notifications
- * <ul>
- * <li> mp_enablePush - <code><a href="http://developer.android.com/guide/topics/resources/more-resources.html#Bool">Bool</a></code> - Enable push registration, notifications, and analytics. <i>Default: false</i></li>
- * <li> mp_pushSenderId - <code><a href="http://developer.android.com/guide/topics/resources/string-resource.html#String">String</a></code> - <code><a href="http://developer.android.com/google/gcm/gcm.html#senderid">GCM Sender ID</a></code></li>
- * </ul>
- * Required for licensing
- * <ul>
- * <li> mp_enableLicenseCheck - <code><a href="http://developer.android.com/guide/topics/resources/more-resources.html#Bool">Bool</a></code> - By enabling license check, MParticle will automatically validate that the app was downloaded and/or bought via Google Play, or if it was "pirated" or "side-loaded". <i>Default: false</i></li>
- * <li> mp_appLicenseKey - <code><a href="http://developer.android.com/guide/topics/resources/string-resource.html#String">String</a></code> - The <code><a href="http://developer.android.com/google/play/licensing/adding-licensing.html#account-key">public key</a></code> used by your app to verify the user's license with Google Play.</li>
- * </ul>
- * Optional
- * <ul>
- * <li>mp_enableAutoScreenTracking - <code> <a href="http://developer.android.com/guide/topics/resources/more-resources.html#Integer">Integer</a></code> - Enable automatic screen view events. Note that *prior to ICS/API level 14*, this functionality requires instrumentation via an mParticle Activity implementation or manually. </li>
- * <li>mp_productionUploadInterval - <code> <a href="http://developer.android.com/guide/topics/resources/more-resources.html#Integer">Integer</a></code> - The length of time in seconds to send batches of messages to mParticle. Setting this too low could have an adverse effect on the device battery. <i>Default: 600</i></li>
- * <li>mp_reportUncaughtExceptions - <code> <a href="http://developer.android.com/guide/topics/resources/more-resources.html#Bool">Bool</a></code> - By enabling this, the MParticle SDK will automatically log and report any uncaught exceptions, including stack traces. <i>Default: false</i></li>
- * <li>mp_sessionTimeout - <code> <a href="http://developer.android.com/guide/topics/resources/more-resources.html#Integer">Integer</a></code> - The length of time (in seconds) that a user session will remain valid while application has been paused and put into the background. <i>Default: 60</i></li>
- * </ul>
+ *
  */
 public class MParticle {
     /**
@@ -114,6 +89,28 @@ public class MParticle {
 
 
     protected MParticle() { }
+    
+    private MParticle(MParticleOptions options) {
+        ConfigManager configManager = new ConfigManager(options.getContext(), options.getEnvironment(), options.getApiKey(), options.getApiSecret());
+        configManager.setUploadInterval(options.getUploadInterval());
+        configManager.setSessionTimeout(options.getSessionTimeout());
+        configManager.setIdentityConnectionTimeout(options.getConnectionTimeout());
+        AppStateManager appStateManager = new AppStateManager(options.getContext());
+        appStateManager.setConfigManager(configManager);
+        
+        
+        mAppContext = options.getContext();
+        mConfigManager = configManager;
+        mAppStateManager = appStateManager;
+        if (options.isUncaughtExceptionLoggingEnabled()) {
+            enableUncaughtExceptionLogging();
+        } else {
+            disableUncaughtExceptionLogging();
+        }
+        mCommerce = new CommerceApi(options.getContext());
+        mMessageManager = new MessageManager(options.getContext(), configManager, options.getInstallType(), appStateManager, sDevicePerformanceMetricsDisabled);
+        mPreferences = options.getContext().getSharedPreferences(Constants.PREFS_FILE, Context.MODE_PRIVATE);
+    }
 
     /**
      * Start the mParticle SDK and begin tracking a user session. This method must be called prior to {@link #getInstance()}.
@@ -146,29 +143,10 @@ public class MParticle {
                         Logger.error("mParticle requires android.permission.INTERNET permission");
                     }
 
-                    ConfigManager configManager = new ConfigManager(context, options.getEnvironment(), options.getApiKey(), options.getApiSecret());
-                    configManager.setUploadInterval(options.getUploadInterval());
-                    configManager.setSessionTimeout(options.getSessionTimeout());
-                    AppStateManager appStateManager = new AppStateManager(context);
-                    appStateManager.setConfigManager(configManager);
-
-                    instance = new MParticle();
-                    instance.mAppContext = context;
-                    instance.mConfigManager = configManager;
-                    instance.mAppStateManager = appStateManager;
-                    if (options.isUncaughtExceptionLoggingEnabled()) {
-                        instance.enableUncaughtExceptionLogging();
-                    } else {
-                        instance.disableUncaughtExceptionLogging();
-                    }
-                    instance.mCommerce = new CommerceApi(context);
-                    instance.mMessageManager = new MessageManager(context, configManager, options.getInstallType(), appStateManager, sDevicePerformanceMetricsDisabled);
-                    instance.mPreferences = context.getSharedPreferences(Constants.PREFS_FILE, Context.MODE_PRIVATE);
-                    instance.mKitManager = new KitFrameworkWrapper(context, instance.mMessageManager, configManager, appStateManager, instance.mMessageManager.getTaskHandler());
+                    instance = new MParticle(options);
+                    instance.mKitManager = new KitFrameworkWrapper(options.getContext(), instance.mMessageManager, instance.getConfigManager(), instance.getAppStateManager(), instance.mMessageManager.getTaskHandler());
+                    instance.mIdentityApi = new IdentityApi(options.getContext(), instance.mAppStateManager, instance.mMessageManager, instance.mConfigManager, instance.mKitManager);
                     instance.mMessageManager.refreshConfiguration();
-
-                    instance.mIdentityApi = new IdentityApi(context, instance.mAppStateManager, instance.mMessageManager, instance.mConfigManager, instance.mKitManager);
-
                     instance.identify(options);
                     if (options.hasLocationTracking()) {
                         MParticleOptions.LocationTracking locationTracking = options.getLocationTracking();
@@ -179,8 +157,7 @@ public class MParticle {
                         }
                     }
 
-
-                    if (configManager.getLogUnhandledExceptions()) {
+                    if (instance.getConfigManager().getLogUnhandledExceptions()) {
                         instance.enableUncaughtExceptionLogging();
                     }
 
@@ -191,7 +168,7 @@ public class MParticle {
                     //there are a number of settings that don't need to be enabled right away
                     //queue up a delayed init and let the start() call return ASAP.
                     instance.mMessageManager.initConfigDelayed();
-                    appStateManager.init(Build.VERSION.SDK_INT);
+                    instance.mAppStateManager.init(Build.VERSION.SDK_INT);
                     //We ask to be initialized in Application#onCreate, but
                     //if the Context is an Activity, we know we weren't, so try
                     //to salvage session management via simulating onActivityResume.
@@ -205,7 +182,9 @@ public class MParticle {
                     InstallReferrerHelper.fetchInstallReferrer(context, new InstallReferrerHelper.InstallReferrerCallback() {
                         @Override
                         public void onReceived(String installReferrer) {
-                            InstallReferrerHelper.setInstallReferrer(instance.mAppContext, installReferrer);
+                            if (MParticle.getInstance() != null) {
+                                InstallReferrerHelper.setInstallReferrer(MParticle.getInstance().mAppContext, installReferrer);
+                            }
                         }
 
                         @Override
@@ -273,43 +252,13 @@ public class MParticle {
         return sAndroidIdDisabled;
     }
 
+    /**
+     * Query whether device performance metrics are disabled
+     *
+     * @return true if Device Performance Metrics are disabled
+     */
     public boolean isDevicePerformanceMetricsDisabled() {
         return mMessageManager.isDevicePerformanceMetricsDisabled();
-    }
-
-
-    /**
-     * Track that an Activity has started. Should only be called within the onStart method of your Activities,
-     * and is only necessary for pre-API level 14 devices. Not necessary to use if your Activity extends an mParticle
-     * Activity implementation.
-     *
-     * @see com.mparticle.activity.MPActivity
-     * @see com.mparticle.activity.MPListActivity
-     */
-    public void activityStarted(Activity activity) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.ICE_CREAM_SANDWICH) {
-            if (mConfigManager.isEnabled()) {
-                mAppStateManager.ensureActiveSession();
-                mAppStateManager.onActivityStarted(activity);
-            }
-        }
-    }
-
-    /**
-     * Track that an Activity has stopped. Should only be called within the onStop method of your Activities,
-     * and is only necessary for pre-API level 14 devices. Not necessary to use if your Activity extends an mParticle
-     * Activity implementation.
-     *
-     * @see com.mparticle.activity.MPActivity
-     * @see com.mparticle.activity.MPListActivity
-     */
-    public void activityStopped(Activity activity) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.ICE_CREAM_SANDWICH) {
-            if (mConfigManager.isEnabled()) {
-                mAppStateManager.ensureActiveSession();
-                mAppStateManager.onActivityStopped(activity);
-            }
-        }
     }
 
     /**
@@ -341,114 +290,13 @@ public class MParticle {
         InstallReferrerHelper.setInstallReferrer(mAppContext, referrer);
     }
 
+    /**
+     * Retrieve the current install referrer, if it has been set
+     *
+     * @return The current Install Referrer
+     */
     public String getInstallReferrer() {
         return InstallReferrerHelper.getInstallReferrer(mAppContext);
-    }
-
-    /**
-     * Logs an event
-     *
-     * @param eventName the name of the event to be tracked (required not null)
-     * @param eventType the type of the event to be tracked
-     */
-    public void logEvent(String eventName, EventType eventType) {
-        logEvent(
-                new MPEvent.Builder(eventName, eventType)
-                        .build()
-        );
-    }
-
-    /**
-     * Logs an event
-     *
-     * @param eventName the name of the event to be tracked (required not null)
-     * @param eventType the type of the event to be tracked
-     * @param category  the Google Analytics category with which to associate this event
-     */
-    public void logEvent(String eventName, EventType eventType, String category) {
-        logEvent(
-                new MPEvent.Builder(eventName, eventType)
-                        .category(category)
-                        .build()
-        );
-    }
-
-    /**
-     * Logs an event
-     *
-     * @param eventName   the name of the event to be tracked  (required not null)
-     * @param eventType   the type of the event to be tracked
-     * @param eventLength the duration of the event in milliseconds
-     */
-    public void logEvent(String eventName, EventType eventType, long eventLength) {
-        logEvent(
-                new MPEvent.Builder(eventName, eventType)
-                        .duration(eventLength)
-                        .build()
-        );
-    }
-
-    /**
-     * Log an event with data attributes
-     *
-     * @param eventName the name of the event to be tracked  (required not null)
-     * @param eventType the type of the event to be tracked
-     * @param eventInfo a Map of data attributes
-     */
-    public void logEvent(String eventName, EventType eventType, Map<String, String> eventInfo) {
-        logEvent(
-                new MPEvent.Builder(eventName, eventType)
-                        .info(eventInfo)
-                        .build()
-        );
-    }
-
-    /**
-     * Log an event with data attributes
-     *
-     * @param eventName the name of the event to be tracked  (required not null)
-     * @param eventType the type of the event to be tracked
-     * @param eventInfo a Map of data attributes
-     * @param category  the Google Analytics category with which to associate this event
-     */
-    public void logEvent(String eventName, EventType eventType, Map<String, String> eventInfo, String category) {
-        logEvent(
-                new MPEvent.Builder(eventName, eventType)
-                        .info(eventInfo)
-                        .category(category)
-                        .build()
-        );
-    }
-
-    /**
-     * Log an event with data attributes
-     *
-     * @param eventName   the name of the event to be tracked  (required not null)
-     * @param eventType   the type of the event to be tracked
-     * @param eventInfo   a Map of data attributes to associate with the event
-     * @param eventLength the duration of the event in milliseconds
-     */
-    public void logEvent(String eventName, EventType eventType, Map<String, String> eventInfo, long eventLength) {
-        logEvent(eventName, eventType, eventInfo, eventLength, null);
-    }
-
-    /**
-     * Log an event with data attributes
-     *
-     * @param eventName   the name of the event to be tracked  (required not null)
-     * @param eventType   the type of the event to be tracked
-     * @param eventInfo   a Map of data attributes to associate with the event
-     * @param eventLength the duration of the event in milliseconds
-     * @param category    the Google Analytics category with which to associate this event
-     */
-    public void logEvent(String eventName, EventType eventType, Map<String, String> eventInfo, long eventLength, String category) {
-        logEvent(
-                new MPEvent.Builder(eventName, eventType)
-                        .info(eventInfo)
-                        .duration(eventLength)
-                        .category(category)
-                        .build()
-        );
     }
 
     /**
@@ -501,6 +349,16 @@ public class MParticle {
     }
 
     /**
+     * Logs a Consent events in compliance with GDPR
+     *
+     * @see ConsentEvent
+     */
+    void logEvent(ConsentEvent consentEvent) {
+        mAppStateManager.ensureActiveSession();
+        mMessageManager.logConsentEvent(consentEvent);
+    }
+
+    /**
      * Logs an increase in the lifetime value of a user. This will signify an increase
      * in the revenue assigned to this user for service providers that support revenue tracking.
      *
@@ -518,7 +376,11 @@ public class MParticle {
         }
         contextInfo.put(MessageKey.RESERVED_KEY_LTV, valueIncreased.toPlainString());
         contextInfo.put(Constants.MethodName.METHOD_NAME, Constants.MethodName.LOG_LTV);
-        logEvent(eventName == null ? "Increase LTV" : eventName, EventType.Transaction, contextInfo);
+        logEvent(
+                new MPEvent.Builder(eventName == null ? "Increase LTV" : eventName, EventType.Transaction)
+                        .info(contextInfo)
+                        .build()
+        );
     }
 
     /**
@@ -658,6 +520,9 @@ public class MParticle {
         logException(exception, eventData, null);
     }
 
+    /**
+     * Clears the current Attribution Listener
+     */
     public void removeAttributionListener() {
         mAttributionListener = null;
     }
@@ -670,6 +535,11 @@ public class MParticle {
         return mAttributionListener;
     }
 
+    /**
+     * Queries the attribution results
+     *
+     * @return the current attribution results
+     */
     public Map<Integer, AttributionResult> getAttributionResults() {
         return mKitManager.getAttributionResults();
     }
@@ -881,7 +751,6 @@ public class MParticle {
      * @see MParticle.ServiceProviders
      */
     public Uri getSurveyUrl(final int kitId) {
-        //TODO
         return mKitManager.getSurveyUrl(kitId, null, null);
     }
 
@@ -1196,7 +1065,7 @@ public class MParticle {
     /**
      * Event type to use when logging events.
      *
-     * @see #logEvent(String, MParticle.EventType)
+     * @see #logEvent(MPEvent)
      */
     public enum EventType {
         Unknown, Navigation, Location, Search, Transaction, UserContent, UserPreference, Social, Other;
